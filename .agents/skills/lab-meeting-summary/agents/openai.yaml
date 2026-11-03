@@ -1,6 +1,6 @@
 interface:
   display_name: "LabMeeting-AI 组会纪要"
-  short_description: "内存转写并查看少量关键帧，逐人总结科研组会，仅保存最终中文纪要"
-  default_prompt: "使用 $lab-meeting-summary 在内存中处理这份组会录像，完整阅读转写、复核少量关键帧，逐人详细总结，只写最终无图片 Markdown 并报告端到端耗时。"
+  short_description: "按步骤复用或准备依赖与模型，内存转写并逐人总结组会，只保存最终纪要"
+  default_prompt: "使用 $lab-meeting-summary 按步骤复用或按需准备工具与模型，完整读取内存转写、核对关键帧，逐人详细总结，只写最终 Markdown 并报告端到端耗时。"
 policy:
   allow_implicit_invocation: true

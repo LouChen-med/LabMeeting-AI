@@ -26,6 +26,8 @@ LabMeeting-AI/
 │           ├── agents/
 │           │   └── openai.yaml       Skill 展示名称和调用提示
 │           └── references/
+│               ├── 首次配置.md       AI逐步检查、安装依赖、下载模型及短测
+│               ├── 工具调用协议.md   不同软件的子进程、stdout及内存图像适配
 │               └── 方案依据.md       技术选型、兼容性依据与性能边界
 ├── tests/
 │   └── test_pipeline.py              不产生文件的内存/只读测试
@@ -146,7 +148,7 @@ Skill 名称是 `lab-meeting-summary`，项目/仓库名是 `LabMeeting-AI`。�
 
 `stream` 输出转写，`frame-inline` 输出内存图像，命令见第4节。命令行没有 `--output-md`，不会自行调用LLM生成纪要；仍需当前AI读取全部输出并完成最后写作。普通终端打印的base64也不等同于AI已经看过图片。
 
-阅读路径：本 README → [SKILL.md](.agents/skills/lab-meeting-summary/SKILL.md)；需要了解选型和测试边界时再读[方案依据](.agents/skills/lab-meeting-summary/references/方案依据.md)。
+阅读路径：本 README → [SKILL.md](.agents/skills/lab-meeting-summary/SKILL.md)。调用AI可直接从Skill开始，按其步骤在需要时读取技能内部的[首次配置](.agents/skills/lab-meeting-summary/references/首次配置.md)和[工具调用协议](.agents/skills/lab-meeting-summary/references/工具调用协议.md)，不要求先翻README；选型和测试边界见[方案依据](.agents/skills/lab-meeting-summary/references/方案依据.md)。
 
 ## 4. 代码运行顺序
 
