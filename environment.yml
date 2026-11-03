@@ -1,0 +1,18 @@
+name: labmeeting-ai
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.11.18
+  - pip
+  - setuptools=81.0.0
+  - numpy=2.4.6
+  - pillow=13.0.0
+  - requests=2.34.2
+  - av=18.1.0
+  - pip:
+      - faster-whisper==1.2.1
+      - ctranslate2==4.6.0
+      - huggingface-hub==0.36.2
+      - onnxruntime==1.31.1
+      - tokenizers==0.23.3

@@ -1,0 +1,23 @@
+# Only source code, reusable skill and environment specifications are public.
+tmp/
+models/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.wav
+*.mp3
+*.flac
+*.srt
+transcript*
+manifest.json
+timings.json
+frames.json
+video.json
+audio.json
+environment.lock.local.txt
