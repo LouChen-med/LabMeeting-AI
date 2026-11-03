@@ -8,7 +8,9 @@
 
 音频解码和语音识别在本机运行，语义总结使用正在工作的 Codex 或 DeepSeek Harness。该 Skill 是调用说明和本地工具的组合；Python CLI 本身不调用总结 API，也不会独立生成会议纪要。
 
-会议处理只写最终 MD，不保存 WAV、转写、截图、日志或计时文件，MD 不嵌图。首次安装的环境、可复用模型和工具代码会保留；模型下载器会使用安装缓存，这与日常会议处理分开。
+会议处理只写最终 MD，不生成 WAV、转写、截图、日志或计时文件，也不先生成再删除，MD 不嵌图。首次安装的环境、可复用模型和工具代码会保留；模型下载器会使用安装缓存，这与日常会议处理分开。
+
+日常通过Skill自带的固定 `scripts/run.cmd`或直接调用已核实的Conda环境解释器，避免 `conda run`先写临时批处理再删除。脚本尽早禁用Python字节码/CUDA缓存、启用HF离线模式，并通过Python audit hook使Python层文件写入尝试直接失败。宿主不得另存转写、截图或磁盘spool；脚本不能控制AI应用自身会话数据库、系统分页和未暴露audit事件的原生DLL写入。本轮原生库验证的已测范围见[方案依据](.agents/skills/lab-meeting-summary/references/方案依据.md)，调用要求见[工具调用协议](.agents/skills/lab-meeting-summary/references/工具调用协议.md)。
 
 ## 2. 文件树与说明
 
@@ -25,12 +27,14 @@ LabMeeting-AI/
 │           ├── SKILL.md              当前 AI 执行会议总结时的指令
 │           ├── agents/
 │           │   └── openai.yaml       Skill 展示名称和调用提示
+│           ├── scripts/
+│           │   └── run.cmd           固定调用入口，向已核实Conda解释器透传CLI参数
 │           └── references/
 │               ├── 首次配置.md       AI逐步检查、安装依赖、下载模型及短测
 │               ├── 工具调用协议.md   不同软件的子进程、stdout及内存图像适配
 │               └── 方案依据.md       技术选型、兼容性依据与性能边界
 ├── tests/
-│   └── test_pipeline.py              不产生文件的内存/只读测试
+│   └── test_pipeline.py              内存/只读逻辑及文件写入拦截测试
 ├── models/                           本地模型资产，不随 Git 发布
 │   └── large-v3-turbo/               模型文件及 provenance.json 来源记录
 └── tmp/                              用户预建的首次安装临时区，日常处理不用
@@ -46,7 +50,7 @@ Git 仓库不含模型权重、GPU DLL、会议视频或真实会议内容。克
 |---|---|
 | 操作系统 | Windows x64；本机验证平台为 Windows 11 x64。其他平台未进行本项目端到端验证，不依赖 WSL 或 Docker。 |
 | Conda | 管理 Python 和依赖。本机路径为 `D:\software\Anaconda\Scripts\conda.exe`；其他机器替换为自己的 Conda 路径。 |
-| Python 环境 | 环境名 `labmeeting-ai`，固定 Python 3.11.18；由 `environment.yml` 创建。 |
+| Python 环境 | 环境名 `labmeeting-ai`，固定 Python 3.11.18；由 `environment.yml` 创建并由Conda管理。日常直接使用已核实的 `D:\software\Anaconda\envs\labmeeting-ai\python.exe`，不经 `conda run`。 |
 | NVIDIA GPU 与驱动 | `stream` 当前固定使用 CUDA，没有 CPU 转写开关。本机为 RTX 4070 Laptop、8 GB 显存、驱动 566.14；这是验证配置，不是所有硬件的最低要求。 |
 | GPU 运行库 | CUDA 12 runtime、cuBLAS/cuBLASLt、cuDNN 9 及其组件；**不包含在本项目的 `environment.yml` 中**，需复用已有兼容 DLL 或另行准备。 |
 | Windows C++ runtime | CTranslate2 Windows wheel 需要兼容的 Visual C++ runtime；Conda 会带入相关运行库。已有可用运行库时不用再安装；缺失时参考 [Microsoft 官方下载说明](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)。 |
@@ -142,7 +146,7 @@ $lab-meeting-summary
 只保留最终 MD，并详细总结每位汇报者。
 ```
 
-Skill 名称是 `lab-meeting-summary`，项目/仓库名是 `LabMeeting-AI`。本仓库没有自动全局安装 Skill；如果当前会话不识别 `$lab-meeting-summary`，使用方式A显式指定文件，不要假设仅克隆仓库就能在所有会话按名称调用。
+Skill名称是 `lab-meeting-summary`，项目/仓库名是 `LabMeeting-AI`。全局安装或更新须有用户授权，本机目标位置为 `J:\codex\.codex-data\home\skills\lab-meeting-summary`；安装和宿主发现状态须实际核实。如果当前会话不识别 `$lab-meeting-summary`，使用方式A显式指定项目内或已安装的 `SKILL.md`，不要假设仅克隆仓库就能按名称调用。全局Skill仍依赖外部完整项目和本地模型，项目定位优先使用显式路径或本次进程的 `LABMEETING_AI_PROJECT`，本机已核实项目为 `E:\BRC\Meet\LabMeeting-AI`。
 
 #### C. 命令行：调试本地步骤
 
@@ -163,8 +167,8 @@ Set-Location -LiteralPath 'E:\BRC\Meet\LabMeeting-AI'
 & 'D:\software\Anaconda\Scripts\conda.exe' env list
 # 仅环境不存在且已获批准时执行下一行。
 & 'D:\software\Anaconda\Scripts\conda.exe' env create -f .\environment.yml
-& 'D:\software\Anaconda\Scripts\conda.exe' run -n labmeeting-ai python -B -c "import sys; print(sys.executable); print(sys.version)"
-& 'D:\software\Anaconda\Scripts\conda.exe' run -n labmeeting-ai python -B -m pip check
+& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -X utf8 -c "import sys; print(sys.executable); print(sys.version)"
+& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 -m pip check
 ```
 
 包来源为 conda-forge，以及环境文件 `pip:` 部分的 PyPI 发行包。创建环境不会下载 ASR 权重，也不会自动准备完整GPU DLL。
@@ -199,33 +203,43 @@ Set-Location -LiteralPath 'E:\BRC\Meet\LabMeeting-AI'
 
 ```powershell
 nvidia-smi
-& 'D:\software\Anaconda\Scripts\conda.exe' run -n labmeeting-ai python -B .\labmeeting.py check --dll-dir 'D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib'
-& 'D:\software\Anaconda\Scripts\conda.exe' run --no-capture-output -n labmeeting-ai python -B .\labmeeting.py stream --video '视频完整路径.mp4' --model '.\models\large-v3-turbo' --dll-dir 'D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib' --limit-seconds 120
+& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 .\labmeeting.py check --dll-dir 'D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib'
+& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 .\labmeeting.py stream --video '视频完整路径.mp4' --model '.\models\large-v3-turbo' --dll-dir 'D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib' --language auto --limit-seconds 120
 ```
 
 包导入、CUDA可见不等于推理成功，需看到短测成功退出和 `complete` 事件。若视频开头没有发言，可增大 `--limit-seconds` 以覆盖实际发言，不另存测试片段；无语音错误不能直接当作GPU故障。短测只验证所覆盖片段，不能生成整场纪要。
 
 ### 4.2 日常处理：只转写、按需看帧、写最终MD
 
+推荐使用Skill自带的固定 `scripts/run.cmd`，运行时不生成临时启动脚本；它把完整CLI参数透传给已核实的Conda环境解释器。项目优先取进程变量 `LABMEETING_AI_PROJECT`，否则从入口目录向上四级找仓库，未找到回退本机 `E:\BRC\Meet\LabMeeting-AI`；用户明确指定项目时，将其传入本次子进程的该变量。解释器默认本机已核实路径，可用进程变量 `LABMEETING_AI_PYTHON`覆盖；全局安装后入口位于 `J:\codex\.codex-data\home\skills\lab-meeting-summary\scripts\run.cmd`。
+
+固定入口自动加入 `-I -B -u -X utf8`，直接解释器示例也保留这些参数：隔离用户site和 `PYTHONPATH`、禁止字节码写盘、实时输出并固定UTF-8。主入口在本进程加载 `sys.prefix\Library\bin`，不依赖 `activate`；额外GPU库仍通过 `--dll-dir`指定。不得换回 `conda run`或落地临时启动脚本。
+
 **内存转写：**
 
 ```powershell
-& 'D:\software\Anaconda\Scripts\conda.exe' run --no-capture-output -n labmeeting-ai python -B .\labmeeting.py stream --video '视频完整路径.mp4' --model '.\models\large-v3-turbo' --dll-dir 'D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib'
+& 'C:\Windows\System32\cmd.exe' /d /c '"E:\BRC\Meet\LabMeeting-AI\.agents\skills\lab-meeting-summary\scripts\run.cmd" stream --video "视频完整路径.mp4" --model "E:\BRC\Meet\LabMeeting-AI\models\large-v3-turbo" --dll-dir "D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib" --language auto'
 ```
 
-默认参数为中文 `zh`、`int8_float16`、batch 2、beam 1；需要其他语言可设置 `--language`。输入为原视频和已有模型；stdout依次输出 `audio_ready`、分批 `segments` 和末尾 `complete` 事件。
+等价的直接解释器备用入口如下，二选一，不重复处理整场：
+
+```powershell
+& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 .\labmeeting.py stream --video '视频完整路径.mp4' --model '.\models\large-v3-turbo' --dll-dir 'D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib' --language auto
+```
+
+默认参数为 `--language auto`、`int8_float16`、batch 2、beam 1。auto映射 `language=None`、`multilingual=True`，以 `task=transcribe`保留原语言；每个VAD音频块（约30秒）选择主语言提示，支持中英文交替，并非逐词或每条最终字幕段检测。`--language zh`或 `en`固定提示并关闭分块切换，不做翻译；同一块内的混合术语仍须复核。最终纪要用中文，保留有依据的英文专业术语、缩写和名称原文。输入为原视频和已有模型；stdout依次输出 `audio_ready`、分批 `segments` 和末尾 `complete`事件。
 
 编排层须在工具截断前完整消费stdout，在内存保存并分批返回可读文字。检查 `complete.count` 与实际收到的段数、`scope=full`、`limit_seconds=null`，以及音频和原视频时长；已丢失内容不能视为已读，明显时长缺口需说明。禁止重定向、Tee或保存中间转写。
 
 **AI完整阅读后，按需回看少量关键帧：**
 
 ```powershell
-& 'D:\software\Anaconda\Scripts\conda.exe' run --no-capture-output -n labmeeting-ai python -B .\labmeeting.py frame-inline --video '视频完整路径.mp4' --times 00:05:00 00:32:10 4200 --width 1920
+& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 .\labmeeting.py frame-inline --video '视频完整路径.mp4' --times 00:05:00 00:32:10 4200 --width 1920
 ```
 
 `--times`接受秒数或 `HH:MM:SS`，以原视频为基准；4200表示70分钟。输出为含 `requested_seconds`、`actual_seconds` 和 `data_url` 的JSON。工具编排层解析后直接渲染图片，不把base64正文交给模型、不保存图片；仅有时间戳而未查看画面时，不能声称已完成画面核验。
 
-**当前AI写最终MD：** 按Skill要求完成逐人纪要，仅标原视频时间，不嵌图；明确区分实测结果、假设和计划，未核清的内容列为待核。确认覆盖会议尾声，并排除会后无关录屏。
+**当前AI写最终MD：** 按Skill要求完成逐人纪要，仅标原视频时间，不嵌图；明确区分实测结果、假设和计划，未核清的内容列为待核。确认覆盖会议尾声，并排除会后无关录屏。完整正文在内存准备好后直接写用户指定目标；目标不存在时独占创建，不保存临时稿、不用原子写入临时副本，文件工具不得暗自写备份。
 
 ### 4.3 排错和验证
 
@@ -241,8 +255,8 @@ nvidia-smi
 | 图像或转写被工具截断 | 调整工具缓冲与消费方式，不能假定丢失部分可恢复或已核验 |
 
 ```powershell
-& 'D:\software\Anaconda\Scripts\conda.exe' run -n labmeeting-ai python -B .\labmeeting.py metadata --video '视频完整路径.mp4'
-& 'D:\software\Anaconda\Scripts\conda.exe' run -n labmeeting-ai python -B -m unittest discover -s tests -v
+& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 .\labmeeting.py metadata --video '视频完整路径.mp4'
+& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 -m unittest discover -s tests -v
 ```
 
-单位测试不创建测试文件。性能目标为每小时视频最多五分钟，包括AI阅读、关键帧核验和最终MD写出；首次安装和下载另计。不同语速、有效内容比例、噪声、内存/显存占用和宿主AI速度会影响耗时，不能用短测或ASR单步替代端到端测量。
+本轮7项单位测试通过，覆盖中英文本原样保留、auto/zh/en模式选择及9类文件变更前拦截；不创建测试文件，测试通过不证明原生DLL或宿主应用从未写盘。运行前核实启动器和宿主不另存会议中间文件，结束时的无残留检查仅作补充。性能目标为每小时视频最多五分钟，包括AI阅读、关键帧核验和最终MD写出；首次安装和下载另计。不同语速、有效内容比例、噪声、内存/显存占用和宿主AI速度会影响耗时，不能用短测或ASR单步替代端到端测量。

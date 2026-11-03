@@ -6,6 +6,12 @@ No model downloads, software installation, cloud calls, or source mutation occur
 """
 from __future__ import annotations
 
+import sys
+
+# Apply before importing even standard-library helpers. The documented launcher
+# also uses -I -B so interpreter startup cannot create user-site bytecode.
+sys.dont_write_bytecode = True
+
 import argparse
 import base64
 import importlib.metadata
@@ -15,11 +21,53 @@ import math
 import os
 from pathlib import Path
 import subprocess
-import sys
 import time
 
 SAMPLE_RATE = 16000
 DLL_HANDLES = []
+BLOCKED_FILE_MUTATIONS = []
+_MEMORY_GUARD_INSTALLED = False
+
+
+# %% Prevent Python dependencies from creating even short-lived disk artifacts
+def reject_file_mutation(event: str, args: tuple) -> None:
+    mutation = event in {
+        "os.remove", "os.rmdir", "os.rename", "os.mkdir", "os.link", "os.symlink",
+        "os.truncate", "os.chmod", "os.chown", "os.utime", "os.setxattr", "os.removexattr",
+        "shutil.copyfile", "shutil.copymode", "shutil.copystat",
+    }
+    if event == "open":
+        target, mode, flags = args
+        write_flags = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND \
+            | getattr(os, "O_TEMPORARY", 0)
+        mutation = (isinstance(mode, str) and any(char in mode for char in "wax+")) \
+            or (isinstance(flags, int) and bool(flags & write_flags))
+        # Standard output/error are memory pipes provided by the caller.
+        if isinstance(target, int) and target in (1, 2):
+            mutation = False
+        # NUL (/dev/null on POSIX) is a device sink, not a disk artifact.
+        if isinstance(target, (str, bytes)) and os.fsdecode(target).casefold() == os.devnull.casefold():
+            mutation = False
+    if mutation:
+        detail = f"{event}: {args[0] if args else ''}"
+        BLOCKED_FILE_MUTATIONS.append(detail)
+        raise RuntimeError("Memory-only processing blocked a filesystem mutation before execution: " + detail)
+
+
+def configure_memory_runtime() -> None:
+    global _MEMORY_GUARD_INSTALLED
+    sys.dont_write_bytecode = True
+    os.environ.update(PYTHONDONTWRITEBYTECODE="1", CUDA_CACHE_DISABLE="1",
+                      MKL_THREADING_LAYER="SEQUENTIAL", HF_HUB_OFFLINE="1",
+                      HF_HUB_DISABLE_TELEMETRY="1")
+    if not _MEMORY_GUARD_INSTALLED:
+        sys.addaudithook(reject_file_mutation)
+        _MEMORY_GUARD_INSTALLED = True
+    # Directly start this Conda-managed interpreter: `conda run` itself writes
+    # a temporary .bat. Add runtime DLLs in this child process without activation.
+    library_bin = Path(sys.prefix) / "Library" / "bin"
+    if os.name == "nt" and library_bin.is_dir():
+        load_dll_directories([str(library_bin)])
 
 
 def timestamp(seconds: float, srt: bool = False) -> str:
@@ -186,9 +234,6 @@ def decode_audio_memory(video: Path, limit: float | None):
 
 # %% Preferred memory-only transcription, emitting evidence directly to the caller.
 def stream_transcript(args: argparse.Namespace) -> None:
-    sys.dont_write_bytecode = True
-    os.environ["CUDA_CACHE_DISABLE"] = "1"
-    os.environ["MKL_THREADING_LAYER"] = "SEQUENTIAL"
     started = time.perf_counter()
     video = args.video.resolve(strict=True)
     if not video.is_file():
@@ -211,7 +256,9 @@ def stream_transcript(args: argparse.Namespace) -> None:
     pipeline = BatchedInferencePipeline(model=model)
     timings["model_load_seconds"] = time.perf_counter() - stage
     stage = time.perf_counter()
-    generator, info = pipeline.transcribe(audio, language=args.language, task="transcribe",
+    automatic_language = args.language == "auto"
+    generator, info = pipeline.transcribe(audio, language=None if automatic_language else args.language,
+                                          multilingual=automatic_language, task="transcribe",
                                           batch_size=args.batch_size, beam_size=args.beam_size,
                                           vad_filter=True, word_timestamps=False,
                                           without_timestamps=False, condition_on_previous_text=False)
@@ -241,7 +288,9 @@ def stream_transcript(args: argparse.Namespace) -> None:
                       "audio_duration_seconds": audio_info["duration_seconds"],
                       "count": len(segments), "language": info.language, "timings": timings,
                       "settings": {"compute_type": args.compute_type, "batch_size": args.batch_size,
-                                   "beam_size": args.beam_size, "model": model_info["path"]}},
+                                   "beam_size": args.beam_size, "model": model_info["path"],
+                                   "language_mode": args.language, "multilingual": automatic_language,
+                                   "task": "transcribe"}},
                      ensure_ascii=False), flush=True)
 
 
@@ -270,7 +319,6 @@ def model_identity(path: Path) -> dict:
 
 # %% Sparse evidence frames from requested video timestamps
 def inline_frames(args: argparse.Namespace) -> None:
-    sys.dont_write_bytecode = True
     import av
 
     video = args.video.resolve(strict=True)
@@ -322,7 +370,8 @@ def build_parser() -> argparse.ArgumentParser:
     stream.add_argument("--compute-type", choices=["int8_float16", "float16", "int8"], default="int8_float16")
     stream.add_argument("--batch-size", type=int, default=2)
     stream.add_argument("--beam-size", type=int, default=1)
-    stream.add_argument("--language", default="zh")
+    stream.add_argument("--language", default="auto",
+                        help="auto: detect language per audio chunk for mixed speech; zh/en: fixed language hint")
     stream.add_argument("--limit-seconds", type=float)
     stream.set_defaults(handler=stream_transcript)
     inline = commands.add_parser("frame-inline", help="Preferred: seek sparse frames and emit in-memory JPEG data URLs")
@@ -342,7 +391,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     try:
+        configure_memory_runtime()
         args.handler(args)
+        if BLOCKED_FILE_MUTATIONS:
+            raise RuntimeError("A dependency attempted filesystem changes; memory-only verification failed")
     except Exception as exc:
         print(f"ERROR {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1

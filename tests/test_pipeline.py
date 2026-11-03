@@ -1,7 +1,13 @@
 # %% Meaningful invariants without GPU or model dependencies
 import importlib.util
+import contextlib
+import io
+import json
 import os
 from pathlib import Path
+import subprocess
+import sys
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -12,6 +18,90 @@ SPEC.loader.exec_module(MODULE)
 
 
 class PipelineInvariants(unittest.TestCase):
+    def test_mixed_language_default_detects_chunks_and_preserves_original_text(self):
+        captured_options = []
+        spoken_text = ["这个 assay 检测 T cells。", "The results show an increase in CD8 T cells."]
+
+        class FakePipeline:
+            def __init__(self, model):
+                pass
+
+            def transcribe(self, audio, **options):
+                captured_options.append(options)
+                return iter(SimpleNamespace(start=index, end=index + 1, text=text)
+                            for index, text in enumerate(spoken_text)), SimpleNamespace(language="zh")
+
+        fake_whisper = SimpleNamespace(WhisperModel=lambda *args, **kwargs: object(),
+                                       BatchedInferencePipeline=FakePipeline)
+        for explicit_language, expected_language, expected_multilingual in [
+            (None, None, True), ("zh", "zh", False), ("en", "en", False)
+        ]:
+            arguments = ["stream", "--video", str(SOURCE), "--model", str(SOURCE.parent)]
+            if explicit_language:
+                arguments += ["--language", explicit_language]
+            args = MODULE.build_parser().parse_args(arguments)
+            output = io.StringIO()
+            with patch.dict(sys.modules, {"faster_whisper": fake_whisper}), \
+                    patch.object(MODULE, "load_dll_directories"), \
+                    patch.object(MODULE, "model_identity", return_value={"path": "local-model"}), \
+                    patch.object(MODULE, "decode_audio_memory", return_value=(object(),
+                                 {"duration_seconds": 10, "source_duration_seconds": 10})), \
+                    contextlib.redirect_stdout(output):
+                MODULE.stream_transcript(args)
+            events = [json.loads(line) for line in output.getvalue().splitlines()]
+            texts = [segment["text"] for event in events if event["event"] == "segments"
+                     for segment in event["segments"]]
+            self.assertEqual(texts, spoken_text)
+            self.assertEqual(captured_options[-1]["language"], expected_language)
+            self.assertEqual(captured_options[-1]["multilingual"], expected_multilingual)
+            self.assertEqual(captured_options[-1]["task"], "transcribe")
+            self.assertEqual(events[-1]["settings"]["multilingual"], expected_multilingual)
+
+    def test_runtime_blocks_real_file_mutations_before_creation(self):
+        # Exercise actual Python file APIs in an isolated child. No fixture,
+        # temporary script or temporary directory is created by the test.
+        script = r'''
+import io, os, pathlib, runpy, shutil, sys, tempfile
+source = pathlib.Path(sys.argv[1])
+namespace = runpy.run_path(str(source))
+namespace["configure_memory_runtime"]()
+target = source.parent / "tmp" / "blocked-write-must-not-exist"
+assert not target.exists()
+operations = [
+    lambda: target.open("xb"),
+    lambda: os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL),
+    lambda: target.mkdir(),
+    lambda: target.unlink(),
+    lambda: target.rename(str(target) + ".renamed"),
+    lambda: os.utime(target, None),
+    lambda: shutil.copyfile(source, target),
+    lambda: tempfile.NamedTemporaryFile(dir=source.parent / "tmp"),
+]
+if hasattr(os, "O_TEMPORARY"):
+    operations.append(lambda: os.open(target, os.O_RDONLY | os.O_TEMPORARY))
+for operation in operations:
+    try:
+        operation()
+    except RuntimeError as exc:
+        assert "blocked a filesystem mutation before execution" in str(exc), str(exc)
+    else:
+        raise AssertionError("A filesystem mutation escaped the memory-only guard")
+assert not target.exists()
+assert len(namespace["BLOCKED_FILE_MUTATIONS"]) == len(operations)
+assert source.read_bytes()
+assert io.BytesIO(b"memory-only JPEG/audio").getvalue()
+with open(os.devnull, "w") as null_device:
+    null_device.write("device sink, no disk file")
+assert sys.dont_write_bytecode
+assert os.environ["CUDA_CACHE_DISABLE"] == "1"
+assert os.environ["HF_HUB_OFFLINE"] == "1"
+print("All filesystem mutations blocked before execution; memory and read-only access work")
+'''
+        result = subprocess.run([sys.executable, "-I", "-B", "-u", "-X", "utf8", "-c", script,
+                                 str(SOURCE)], capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("All filesystem mutations blocked before execution", result.stdout)
+
     def test_timestamp_rounding_carries_into_next_minute(self):
         self.assertEqual(MODULE.timestamp(59.9996, True), "00:01:00,000")
         self.assertEqual(MODULE.parse_time("02:30:06.25"), 9006.25)
