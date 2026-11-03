@@ -11,14 +11,13 @@ description: 使用 Windows 和 Conda 在内存中转写本地科研组会 MP4�
 
 - **会议处理不得生成任何中间文件**：不写 WAV、JSON、SRT、TXT、分段转写、截图、日志、缓存或计时文件；不得将 stdout 重定向到文件或使用 Tee 保存。原视频只读，最终只写用户指定的 MD。用户的新要求优先于早期“中间结果留 tmp”的方案。
 - 工具代码、Conda 环境和可复用 ASR 模型是持久工具资产，与会议中间资料不同。不要在每次处理会议时重新下载模型；不要把会议内容混入代码、模型目录或 GitHub。
-- 先读取现有项目约束和环境配置，核实 Conda 环境、解释器、GPU、模型与 DLL。当前环境名为 `labmeeting-ai`；包导入或检测到 CUDA 不等于实际 GPU ASR 推理通过。
+- 复用已验证的环境 `labmeeting-ai`、本地模型和 GPU DLL。首次使用、环境变化或运行故障时再核对解释器与依赖；包导入或检测到 CUDA 不等于实际 GPU 推理通过。
 - Windows 原生运行，不安装 WSL、Docker 或 Ollama。缺依赖或模型时列清版本、来源、路径、完整命令和风险，遵守用户授权；不擅自升级驱动、Conda、base 或修改系统 PATH。已有最终 MD 的覆盖仍遵守授权。
-- 在仓库根目录先读 `labmeeting.py --help` 和相应子命令帮助。当前接口为 `check`、`metadata`、`stream`、`frame-inline`，会议处理使用后两者，不提供磁盘中间产物模式。
+- 日常只用 `stream` 和按需 `frame-inline`。`check`、`metadata`、命令帮助及安装步骤属于首次配置或故障诊断，不作为每次处理的前置步骤；使用索引见 [README](../../../README.md)。
 
 核实环境与实际路径后，例如：
 
 ```powershell
-& 'D:\software\Anaconda\Scripts\conda.exe' run -n labmeeting-ai python -B .\labmeeting.py check --dll-dir 'D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib'
 & 'D:\software\Anaconda\Scripts\conda.exe' run --no-capture-output -n labmeeting-ai python -B .\labmeeting.py stream --video '会议视频完整路径.mp4' --model '本地模型目录' --dll-dir 'D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib' --compute-type int8_float16 --batch-size 2 --beam-size 1 --language zh
 ```
 
@@ -26,8 +25,8 @@ description: 使用 Windows 和 Conda 在内存中转写本地科研组会 MP4�
 
 ## 工作流程
 
-1. 使用 `check` 检查环境，再运行 `stream`。音频数组和本地 ASR 输出都在内存中；8 GB 笔记本显卡可从 `int8_float16`、batch 2、beam 1 开始。接收分批输出的 JSON segment events，持续读取运行中的进程，直到得到完成事件并确认成功退出。不得因工具首批返回而遗漏后续输出。
-2. **完整阅读全部转写，包括最后一批和问答尾声。** 核对完成事件的段数、处理时长、是否启用了片段限制及分批结果总数，记录各位汇报者的起止、课题、方法、结果和问题。工具若截断输出，应在内存接收、解析后分批返回剩余文字，不能把丢失的输出默认为已读，也不能保存临时转写文件。失败或内容未读全时明确报告范围，不用空摘要或抽样纪要冒充完成。
+1. 直接运行 `stream`。音频数组和 ASR 输出均在内存中；8 GB 笔记本显卡可从 `int8_float16`、batch 2、beam 1 开始。编排层应在工具截断之前完整接收 stdout，及时消费各批次并在内存保存、分批返回可读文字，直到收到完成事件且进程成功退出。若底层输出已经丢失，不能假设还可恢复，也不能用落盘转写补救。
+2. **完整阅读全部转写，包括最后一批和问答尾声。** 核对 `complete.count` 与实际收到的段数、`scope`、`limit_seconds`、音频处理时长和原视频时长；短测不能冒充整场处理，明显的时长缺口需说明。记录各位汇报者的起止、课题、方法、结果和问题。失败或内容未读全时明确报告范围，不用空摘要或抽样纪要冒充完成。
 3. 先按文本定位课题切换、关键图表、术语歧义和结论时间，再调用 `frame-inline --video ... --times 00:05:00 00:32:10 4200 --width 1920`。该命令输出内存 JPEG 的 base64 JSON；工具编排层应解析并直接渲染为 image 内容，**不要将 base64 作为文字打印给模型，也不要存图片文件**。必要时查看相邻几秒，不能用抽样图片替代完整转写。录屏同时含个人聊天、浏览器或终端时，只使用会议音频及会议共享区域，不把无关桌面内容写入纪要。
 4. 当前 agent 结合转写与已查看画面撰写。逐位详细说明研究问题、实验设计或分析方法、结果及主要证据、局限、讨论和下一步任务。同一人的多段可合并，保留时间位置；身份无法确认时用“汇报者 1（姓名待核）”。
 5. 核对全部汇报、会议尾部及重要结论，再只写最终 MD。不要另写工作提纲、校对表、图像清单、性能 JSON 或辅助说明文件。

@@ -129,6 +129,8 @@ def decode_audio_memory(video: Path, limit: float | None):
     with av.open(str(video)) as container:
         if not container.streams.audio:
             raise ValueError("Video has no audio stream")
+        source_duration = float(container.duration / av.time_base) \
+            if container.duration is not None else None
         origin = float(container.start_time or 0) / av.time_base
         resampler = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
 
@@ -177,6 +179,7 @@ def decode_audio_memory(video: Path, limit: float | None):
     audio = np.concatenate(blocks)
     return audio, {"sample_rate": SAMPLE_RATE, "samples": cursor,
                    "duration_seconds": cursor / SAMPLE_RATE,
+                   "source_duration_seconds": source_duration,
                    "timeline_origin_seconds": origin, "gap_samples_filled": gaps,
                    "overlap_samples_trimmed": trimmed, "channels": 1}
 
@@ -232,6 +235,9 @@ def stream_transcript(args: argparse.Namespace) -> None:
     timings["seconds_per_video_hour"] = timings["stream_wall_seconds"] * 3600 / audio_info["duration_seconds"]
     timings["end_to_end_status"] = "AI reading, frame review and final minutes remain to be measured"
     print(json.dumps({"event": "complete", "source": source,
+                      "scope": "full" if args.limit_seconds is None else "limited",
+                      "limit_seconds": args.limit_seconds,
+                      "source_duration_seconds": audio_info["source_duration_seconds"],
                       "audio_duration_seconds": audio_info["duration_seconds"],
                       "count": len(segments), "language": info.language, "timings": timings,
                       "settings": {"compute_type": args.compute_type, "batch_size": args.batch_size,
