@@ -10,37 +10,38 @@
 
 会议处理只写最终 MD，不生成 WAV、转写、截图、日志或计时文件，也不先生成再删除，MD 不嵌图。首次安装的环境、可复用模型和工具代码会保留；模型下载器会使用安装缓存，这与日常会议处理分开。
 
-日常通过Skill自带的固定 `scripts/run.cmd`或直接调用已核实的Conda环境解释器，避免 `conda run`先写临时批处理再删除。脚本尽早禁用Python字节码/CUDA缓存、启用HF离线模式，并通过Python audit hook使Python层文件写入尝试直接失败。宿主不得另存转写、截图或磁盘spool；脚本不能控制AI应用自身会话数据库、系统分页和未暴露audit事件的原生DLL写入。本轮原生库验证的已测范围见[方案依据](.agents/skills/lab-meeting-summary/references/方案依据.md)，调用要求见[工具调用协议](.agents/skills/lab-meeting-summary/references/工具调用协议.md)。
+日常通过Skill自带的固定 `scripts/run.cmd`或直接调用已核实的Conda环境解释器，避免 `conda run`先写临时批处理再删除。脚本尽早禁用Python字节码/CUDA缓存、启用HF离线模式，并通过Python audit hook使Python层文件写入尝试直接失败。宿主不得另存转写、截图或磁盘spool；脚本不能控制AI应用自身会话数据库、系统分页和未暴露audit事件的原生DLL写入。历史验证的已测范围见[方案依据](.agents/skills/lab-meeting-summary/references/方案依据.md)，调用要求见[工具调用协议](.agents/skills/lab-meeting-summary/references/工具调用协议.md)。
 
 ## 2. 文件树与说明
 
 ```text
 LabMeeting-AI/
 ├── README.md                         依赖、环境、下载资料、调用和运行顺序
-├── environment.yml                   Conda 环境及主要 Python 依赖版本
-├── labmeeting.py                     内存转写、定点取帧、环境和媒体诊断 CLI
-├── download_model.py                 首次下载固定版本 ASR 模型并校验 SHA256
 ├── .gitignore                        排除模型、安装缓存和会议数据
 ├── .agents/
 │   └── skills/
 │       └── lab-meeting-summary/
 │           ├── SKILL.md              当前 AI 执行会议总结时的指令
+│           ├── environment.yml       Conda 环境及主要 Python 依赖版本
 │           ├── agents/
 │           │   └── openai.yaml       Skill 展示名称和调用提示
 │           ├── scripts/
-│           │   └── run.cmd           固定调用入口，向已核实Conda解释器透传CLI参数
+│           │   ├── run.cmd           固定调用同目录Python脚本，透传CLI参数
+│           │   ├── labmeeting.py     内存转写、定点取帧、环境和媒体诊断 CLI
+│           │   └── download_model.py 首次下载固定版本 ASR 模型并校验 SHA256
 │           └── references/
 │               ├── 首次配置.md       AI逐步检查、安装依赖、下载模型及短测
 │               ├── 工具调用协议.md   不同软件的子进程、stdout及内存图像适配
 │               └── 方案依据.md       技术选型、兼容性依据与性能边界
 ├── tests/
-│   └── test_pipeline.py              内存/只读逻辑及文件写入拦截测试
+│   ├── test_pipeline.py              内存/只读逻辑及文件写入拦截测试
+│   └── test_skill_bundle.py          Skill独立运行与安装资产路径测试
 ├── models/                           本地模型资产，不随 Git 发布
 │   └── large-v3-turbo/               模型文件及 provenance.json 来源记录
 └── tmp/                              用户预建的首次安装临时区，日常处理不用
 ```
 
-Git 仓库不含模型权重、GPU DLL、会议视频或真实会议内容。克隆代码后还需要准备下面列出的运行环境和模型；不能只下载 `SKILL.md` 就开始转写。
+完整 `.agents/skills/lab-meeting-summary`文件夹包含运行所需的Python源码和依赖配置，可以单独下载、复制和安装；不依赖项目根的脚本。Git仓库与Skill均不含模型权重、GPU DLL、会议视频或真实会议内容。下载Skill后仍需准备下面列出的环境、GPU运行库和模型，不能只下载 `SKILL.md`就开始转写。项目根的 `models`和 `tmp`用于本机资产复用，不必与源码一起分发。
 
 ## 3. 使用与阅读顺序
 
@@ -50,9 +51,9 @@ Git 仓库不含模型权重、GPU DLL、会议视频或真实会议内容。克
 |---|---|
 | 操作系统 | Windows x64；本机验证平台为 Windows 11 x64。其他平台未进行本项目端到端验证，不依赖 WSL 或 Docker。 |
 | Conda | 管理 Python 和依赖。本机路径为 `D:\software\Anaconda\Scripts\conda.exe`；其他机器替换为自己的 Conda 路径。 |
-| Python 环境 | 环境名 `labmeeting-ai`，固定 Python 3.11.18；由 `environment.yml` 创建并由Conda管理。日常直接使用已核实的 `D:\software\Anaconda\envs\labmeeting-ai\python.exe`，不经 `conda run`。 |
+| Python 环境 | 环境名 `labmeeting-ai`，固定 Python 3.11.18；由Skill根的 `environment.yml` 创建并由Conda管理。日常直接使用已核实的 `D:\software\Anaconda\envs\labmeeting-ai\python.exe`，不经 `conda run`。 |
 | NVIDIA GPU 与驱动 | `stream` 当前固定使用 CUDA，没有 CPU 转写开关。本机为 RTX 4070 Laptop、8 GB 显存、驱动 566.14；这是验证配置，不是所有硬件的最低要求。 |
-| GPU 运行库 | CUDA 12 runtime、cuBLAS/cuBLASLt、cuDNN 9 及其组件；**不包含在本项目的 `environment.yml` 中**，需复用已有兼容 DLL 或另行准备。 |
+| GPU 运行库 | CUDA 12 runtime、cuBLAS/cuBLASLt、cuDNN 9 及其组件；**不包含在Skill的 `environment.yml` 中**，需复用已有兼容 DLL 或另行准备。 |
 | Windows C++ runtime | CTranslate2 Windows wheel 需要兼容的 Visual C++ runtime；Conda 会带入相关运行库。已有可用运行库时不用再安装；缺失时参考 [Microsoft 官方下载说明](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)。 |
 | 当前 AI/Agent | 已配置可用的 Codex 或 DeepSeek Harness，能读写指定本地路径、执行命令、完整消费 stdout、解析并查看内存 JPEG/data URL。只有文本聊天能力时，无法完成全部画面核验。 |
 | 网络与认证 | 首次安装包和下载模型需要联网；本地转写与取帧读取已有模型。总结使用宿主 AI 已有的认证和额度，本项目没有额外的 API Key/SDK 配置。 |
@@ -60,7 +61,7 @@ Git 仓库不含模型权重、GPU DLL、会议视频或真实会议内容。克
 
 #### Python 主要依赖
 
-这些包由环境文件统一安装，不需要逐个重复执行安装命令。Conda/PyPI还会自动解析它们的传递依赖；该文件固定主要版本，不是完整传递依赖锁文件。
+这些包由Skill根的 [environment.yml](.agents/skills/lab-meeting-summary/environment.yml)统一安装，不需要逐个重复执行安装命令。Conda/PyPI还会自动解析它们的传递依赖；该文件固定主要版本，不是完整传递依赖锁文件。
 
 | 依赖 | 固定版本 | 用途/来源 |
 |---|---|---|
@@ -103,7 +104,7 @@ D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib
 | revision | `0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf` |
 | 权重文件 | `model.bin`，1,617,884,929字节，约1.62 GB |
 | 其他配套文件 | `config.json`、`preprocessor_config.json`、`tokenizer.json`、`vocabulary.json` |
-| 本地位置 | `models/large-v3-turbo/`；来源和各文件哈希记录在本地 `provenance.json` |
+| 本地位置 | 安装资产根的 `models/large-v3-turbo/`；本机继续复用 `E:\BRC\Meet\LabMeeting-AI\models\large-v3-turbo`，来源和各文件哈希记录在本地 `provenance.json` |
 | Token与许可 | 当前公开模型下载不要求 Hugging Face Token；模型页标注 MIT，分发时仍需遵守许可 |
 
 `model.bin` 的官方 SHA256 为：
@@ -116,7 +117,29 @@ e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da
 
 Silero VAD 的 `silero_vad_v6.onnx` 随 faster-whisper 包安装，不用再手动下载一个 VAD 模型。当前未启用词级对齐或说话人聚类，因此也不用下载对应模型。
 
-### 3.3 三种调用方式
+### 3.3 安装或更新完整Skill
+
+从可信的[项目仓库](https://github.com/LouChen-med/LabMeeting-AI)获取源码ZIP或使用已有仓库，提取完整 `.agents/skills/lab-meeting-summary`文件夹，并保留其目录结构。需要复制的是包含 `SKILL.md`、`environment.yml`、`scripts`、`references`和 `agents`的整个文件夹，无需另装项目根源码，也不要把视频、纪要、模型或安装缓存混入分发内容。临时下载与解压位置遵守当前用户的 `tmp`规则。
+
+Codex的本机安装目标为 `J:\codex\.codex-data\home\skills\lab-meeting-summary`。换机先核实实际 `CODEX_HOME`及宿主使用的skills目录，再替换路径；DeepSeek Harness等本地AI软件须核对各自的发现方式和安装目录，不能假设与Codex相同。未注册Skill的宿主也可用下节的完整 `SKILL.md`路径调用。
+
+首次安装示例，仅在已获安装授权、父目录已确认存在且目标目录不存在时执行：
+
+```powershell
+$skillSource = 'E:\BRC\Meet\LabMeeting-AI\.agents\skills\lab-meeting-summary'
+$skillDestination = 'J:\codex\.codex-data\home\skills\lab-meeting-summary'
+if (-not (Test-Path -LiteralPath (Join-Path $skillSource 'SKILL.md') -PathType Leaf)) { throw 'Skill源码不完整，请核对来源目录' }
+if (-not (Test-Path -LiteralPath (Split-Path -Parent $skillDestination) -PathType Container)) { throw '请先核实宿主skills父目录' }
+if (Test-Path -LiteralPath $skillDestination) { throw '目标已存在，请按更新流程处理，避免重复嵌套复制' }
+Copy-Item -LiteralPath $skillSource -Destination $skillDestination -Recurse -ErrorAction Stop
+Get-Item -LiteralPath (Join-Path $skillDestination 'SKILL.md'),(Join-Path $skillDestination 'environment.yml'),(Join-Path $skillDestination 'scripts\run.cmd'),(Join-Path $skillDestination 'scripts\labmeeting.py'),(Join-Path $skillDestination 'scripts\download_model.py')
+```
+
+**更新已安装的Skill：** 先对比源目录与目标目录，列清新增、覆盖和移除文件及完整命令；确认更新授权后按相对路径逐项同步，并核对文件清单与哈希。不要把整个同名文件夹直接复制进已有目标，造成 `lab-meeting-summary/lab-meeting-summary`嵌套，也不要为更新而删除来源不明文件。代码更新不等于需要重装Conda、重复下载模型或迁移已有 `models`和 `tmp`。
+
+安装或更新后，在新会话或宿主技能列表核实 `lab-meeting-summary`是否被发现，并确认实际读取的是已安装目录。仅复制成功不能证明宿主已加载；如未发现，先用完整路径调用并检查该宿主的技能配置。再按第4节核实环境、运行库和模型，运行检查及必要短测；不把 `--help`成功当作GPU推理已通过。
+
+### 3.4 三种调用方式
 
 #### A. 推荐：直接给当前 AI 完整路径
 
@@ -135,7 +158,7 @@ E:\BRC\Meet\LabMeeting-AI\.agents\skills\lab-meeting-summary\SKILL.md
 只保存最终 MD，不生成音频、转写、图片或日志中间文件。
 ```
 
-这条消息可从任意当前目录发起；AI须有目标路径权限，执行相对命令时切换到仓库根目录，或使用完整路径。它没有要求再次安装、下载或额外调用另一个总结 API。已有目标文件时，按用户覆盖授权处理。
+这条消息可从任意当前目录发起；AI须有目标路径权限，执行命令时明确工作目录或使用完整路径。全局安装后，将Skill路径改为 `J:\codex\.codex-data\home\skills\lab-meeting-summary\SKILL.md`；其他宿主使用其实际Skill完整路径。它没有要求再次安装、下载或额外调用另一个总结API。已有目标文件时，按用户覆盖授权处理。
 
 #### B. 快捷名：会话已经发现该 Skill 时使用
 
@@ -146,7 +169,7 @@ $lab-meeting-summary
 只保留最终 MD，并详细总结每位汇报者。
 ```
 
-Skill名称是 `lab-meeting-summary`，项目/仓库名是 `LabMeeting-AI`。全局安装或更新须有用户授权，本机目标位置为 `J:\codex\.codex-data\home\skills\lab-meeting-summary`；安装和宿主发现状态须实际核实。如果当前会话不识别 `$lab-meeting-summary`，使用方式A显式指定项目内或已安装的 `SKILL.md`，不要假设仅克隆仓库就能按名称调用。全局Skill仍依赖外部完整项目和本地模型，项目定位优先使用显式路径或本次进程的 `LABMEETING_AI_PROJECT`，本机已核实项目为 `E:\BRC\Meet\LabMeeting-AI`。
+Skill名称是 `lab-meeting-summary`，项目/仓库名是 `LabMeeting-AI`。先按3.3安装并核实宿主发现状态，再使用快捷名；如果当前会话不识别 `$lab-meeting-summary`，使用方式A显式指定项目内或已安装的 `SKILL.md`。全局Skill自带完整源码及依赖配置，启动内部脚本；本机模型可继续使用 `E:\BRC\Meet\LabMeeting-AI\models\large-v3-turbo`，换机时先核实实际环境及模型路径。
 
 #### C. 命令行：调试本地步骤
 
@@ -158,15 +181,14 @@ Skill名称是 `lab-meeting-summary`，项目/仓库名是 `LabMeeting-AI`。全
 
 ### 4.1 首次准备：环境 → GPU运行库 → 模型 → 短测
 
-以下均为 PowerShell 命令，在 `E:\BRC\Meet\LabMeeting-AI` 执行；其他安装位置须替换路径。安装、下载、修改环境和清理安装缓存前遵守用户授权。已有环境与模型时直接跳到4.2，不重新执行首次安装。
+以下均为PowerShell命令，使用本机项目内Skill的完整路径；全局安装后可将源码和配置前缀替换为已安装Skill根，模型与缓存资产路径单独核实。其他机器须替换解释器、Skill、GPU DLL和资产路径。安装、下载、修改环境和清理安装缓存前遵守用户授权。已有环境与模型时直接跳到4.2，不重新执行首次安装。
 
 **第一步：检查现有环境，缺失时才创建。**
 
 ```powershell
-Set-Location -LiteralPath 'E:\BRC\Meet\LabMeeting-AI'
 & 'D:\software\Anaconda\Scripts\conda.exe' env list
 # 仅环境不存在且已获批准时执行下一行。
-& 'D:\software\Anaconda\Scripts\conda.exe' env create -f .\environment.yml
+& 'D:\software\Anaconda\Scripts\conda.exe' env create -f 'E:\BRC\Meet\LabMeeting-AI\.agents\skills\lab-meeting-summary\environment.yml'
 & 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -X utf8 -c "import sys; print(sys.executable); print(sys.version)"
 & 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 -m pip check
 ```
@@ -183,35 +205,35 @@ Set-Location -LiteralPath 'E:\BRC\Meet\LabMeeting-AI'
 
 若cuBLAS与cuDNN在不同目录，可重复传入 `--dll-dir`。程序只调整当前进程的DLL查找路径；不需要为了运行本项目改系统PATH，也不要求安装编译器或源码构建工具。
 
-**第三步：首次下载模型。** 下载器要求项目已有用户预建的 `tmp`。没有时先由用户准备，不自动创建；模型目录必须为空或不存在，脚本拒绝覆盖已有非空目录。
+**第三步：首次下载模型。** 下载器以 `--project-dir`指定安装资产根，未指定默认Skill根。资产根必须已有用户预建的 `tmp`；没有时先由用户准备，不自动创建。未指定 `--model-dir`则使用资产根的 `models/large-v3-turbo`，相对 `--model-dir`也基于资产根解释且不能越出该根目录。模型目录必须为空或不存在，脚本拒绝覆盖已有非空目录。下面显式指定本机原项目资产根，保留已有模型和 `tmp`的位置；已有可信模型时不执行下载。
 
 官方来源命令：
 
 ```powershell
-& 'D:\software\Anaconda\Scripts\conda.exe' run --no-capture-output -n labmeeting-ai python -B .\download_model.py --revision '0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf' --expected-model-sha256 'e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da'
+& 'D:\software\Anaconda\Scripts\conda.exe' run --no-capture-output -n labmeeting-ai python -B 'E:\BRC\Meet\LabMeeting-AI\.agents\skills\lab-meeting-summary\scripts\download_model.py' --project-dir 'E:\BRC\Meet\LabMeeting-AI' --revision '0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf' --expected-model-sha256 'e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da'
 ```
 
 主站连接受限时，可显式使用本机验证过的传输路径：小配置文件经第三方 `hf-mirror.com`，同一权重经ModelScope下载，再按官方SHA256核验。
 
 ```powershell
-& 'D:\software\Anaconda\Scripts\conda.exe' run --no-capture-output -n labmeeting-ai python -B .\download_model.py --revision '0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf' --endpoint 'https://hf-mirror.com' --direct --weight-url 'https://modelscope.cn/models/pengzhendong/faster-whisper-large-v3-turbo/resolve/c312f538745ce1237d0b0c8eef0b81d91ea1fce6/model.bin' --expected-model-sha256 'e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da'
+& 'D:\software\Anaconda\Scripts\conda.exe' run --no-capture-output -n labmeeting-ai python -B 'E:\BRC\Meet\LabMeeting-AI\.agents\skills\lab-meeting-summary\scripts\download_model.py' --project-dir 'E:\BRC\Meet\LabMeeting-AI' --revision '0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf' --endpoint 'https://hf-mirror.com' --direct --weight-url 'https://modelscope.cn/models/pengzhendong/faster-whisper-large-v3-turbo/resolve/c312f538745ce1237d0b0c8eef0b81d91ea1fce6/model.bin' --expected-model-sha256 'e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da'
 ```
 
-二选一，不重复下载。`--direct`仅让下载进程忽略环境代理，不关闭TLS验证；镜像不是官方来源的替代证明，完整哈希通过才可使用。缓存位于 `tmp/model-download/`，最终模型位于 `models/large-v3-turbo/`，来源记录为 `provenance.json`。下载及模型核验完成后，可在用户允许范围内清理本次安装缓存，保留模型和 `tmp` 目录本身。
+二选一，不重复下载。`--direct`仅让下载进程忽略环境代理，不关闭TLS验证；镜像不是官方来源的替代证明，完整哈希通过才可使用。缓存位于资产根的 `tmp/model-download/`，最终模型默认位于资产根的 `models/large-v3-turbo/`，来源记录为 `provenance.json`。下载及模型核验完成后，可在用户允许范围内清理本次安装缓存，保留模型和 `tmp`目录本身。
 
 **第四步：检查并短测。** 以下DLL路径适用于本机；若GPU库装在其他目录，替换为已核实的实际路径。
 
 ```powershell
 nvidia-smi
-& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 .\labmeeting.py check --dll-dir 'D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib'
-& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 .\labmeeting.py stream --video '视频完整路径.mp4' --model '.\models\large-v3-turbo' --dll-dir 'D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib' --language auto --limit-seconds 120
+& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 'E:\BRC\Meet\LabMeeting-AI\.agents\skills\lab-meeting-summary\scripts\labmeeting.py' check --dll-dir 'D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib'
+& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 'E:\BRC\Meet\LabMeeting-AI\.agents\skills\lab-meeting-summary\scripts\labmeeting.py' stream --video '视频完整路径.mp4' --model 'E:\BRC\Meet\LabMeeting-AI\models\large-v3-turbo' --dll-dir 'D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib' --language auto --limit-seconds 120
 ```
 
 包导入、CUDA可见不等于推理成功，需看到短测成功退出和 `complete` 事件。若视频开头没有发言，可增大 `--limit-seconds` 以覆盖实际发言，不另存测试片段；无语音错误不能直接当作GPU故障。短测只验证所覆盖片段，不能生成整场纪要。
 
 ### 4.2 日常处理：只转写、按需看帧、写最终MD
 
-推荐使用Skill自带的固定 `scripts/run.cmd`，运行时不生成临时启动脚本；它把完整CLI参数透传给已核实的Conda环境解释器。项目优先取进程变量 `LABMEETING_AI_PROJECT`，否则从入口目录向上四级找仓库，未找到回退本机 `E:\BRC\Meet\LabMeeting-AI`；用户明确指定项目时，将其传入本次子进程的该变量。解释器默认本机已核实路径，可用进程变量 `LABMEETING_AI_PYTHON`覆盖；全局安装后入口位于 `J:\codex\.codex-data\home\skills\lab-meeting-summary\scripts\run.cmd`。
+推荐使用Skill自带的固定 `scripts/run.cmd`，运行时不生成临时启动脚本；它始终调用同目录 `labmeeting.py`，把完整CLI参数透传给已核实的Conda环境解释器，不查找外部项目。解释器默认本机已核实路径，可用进程变量 `LABMEETING_AI_PYTHON`覆盖；全局安装后入口位于 `J:\codex\.codex-data\home\skills\lab-meeting-summary\scripts\run.cmd`。模型由 `--model`独立指定，不需要与Skill代码放在一起。
 
 固定入口自动加入 `-I -B -u -X utf8`，直接解释器示例也保留这些参数：隔离用户site和 `PYTHONPATH`、禁止字节码写盘、实时输出并固定UTF-8。主入口在本进程加载 `sys.prefix\Library\bin`，不依赖 `activate`；额外GPU库仍通过 `--dll-dir`指定。不得换回 `conda run`或落地临时启动脚本。
 
@@ -224,7 +246,7 @@ nvidia-smi
 等价的直接解释器备用入口如下，二选一，不重复处理整场：
 
 ```powershell
-& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 .\labmeeting.py stream --video '视频完整路径.mp4' --model '.\models\large-v3-turbo' --dll-dir 'D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib' --language auto
+& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 'E:\BRC\Meet\LabMeeting-AI\.agents\skills\lab-meeting-summary\scripts\labmeeting.py' stream --video '视频完整路径.mp4' --model 'E:\BRC\Meet\LabMeeting-AI\models\large-v3-turbo' --dll-dir 'D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib' --language auto
 ```
 
 默认参数为 `--language auto`、`int8_float16`、batch 2、beam 1。auto映射 `language=None`、`multilingual=True`，以 `task=transcribe`保留原语言；每个VAD音频块（约30秒）选择主语言提示，支持中英文交替，并非逐词或每条最终字幕段检测。`--language zh`或 `en`固定提示并关闭分块切换，不做翻译；同一块内的混合术语仍须复核。最终纪要用中文，保留有依据的英文专业术语、缩写和名称原文。输入为原视频和已有模型；stdout依次输出 `audio_ready`、分批 `segments` 和末尾 `complete`事件。
@@ -234,7 +256,7 @@ nvidia-smi
 **AI完整阅读后，按需回看少量关键帧：**
 
 ```powershell
-& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 .\labmeeting.py frame-inline --video '视频完整路径.mp4' --times 00:05:00 00:32:10 4200 --width 1920
+& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 'E:\BRC\Meet\LabMeeting-AI\.agents\skills\lab-meeting-summary\scripts\labmeeting.py' frame-inline --video '视频完整路径.mp4' --times 00:05:00 00:32:10 4200 --width 1920
 ```
 
 `--times`接受秒数或 `HH:MM:SS`，以原视频为基准；4200表示70分钟。输出为含 `requested_seconds`、`actual_seconds` 和 `data_url` 的JSON。工具编排层解析后直接渲染图片，不把base64正文交给模型、不保存图片；仅有时间戳而未查看画面时，不能声称已完成画面核验。
@@ -255,8 +277,9 @@ nvidia-smi
 | 图像或转写被工具截断 | 调整工具缓冲与消费方式，不能假定丢失部分可恢复或已核验 |
 
 ```powershell
-& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 .\labmeeting.py metadata --video '视频完整路径.mp4'
-& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 -m unittest discover -s tests -v
+& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 'E:\BRC\Meet\LabMeeting-AI\.agents\skills\lab-meeting-summary\scripts\labmeeting.py' metadata --video '视频完整路径.mp4'
+# 回归测试随仓库提供；仅下载完整Skill的使用者无需额外获取测试目录。
+& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 -m unittest discover -s 'E:\BRC\Meet\LabMeeting-AI\tests' -v
 ```
 
-本轮7项单位测试通过，覆盖中英文本原样保留、auto/zh/en模式选择及9类文件变更前拦截；不创建测试文件，测试通过不证明原生DLL或宿主应用从未写盘。运行前核实启动器和宿主不另存会议中间文件，结束时的无残留检查仅作补充。性能目标为每小时视频最多五分钟，包括AI阅读、关键帧核验和最终MD写出；首次安装和下载另计。不同语速、有效内容比例、噪声、内存/显存占用和宿主AI速度会影响耗时，不能用短测或ASR单步替代端到端测量。
+回归测试覆盖中英文本原样保留、auto/zh/en模式选择、文件变更前拦截、Skill源码独立性及安装资产路径；实际运行结果在会话中报告。测试通过不证明原生DLL或宿主应用从未写盘。运行前核实启动器和宿主不另存会议中间文件，结束时的无残留检查仅作补充。性能目标为每小时视频最多五分钟，包括AI阅读、关键帧核验和最终MD写出；首次安装和下载另计。不同语速、有效内容比例、噪声、内存/显存占用和宿主AI速度会影响耗时，不能用短测或ASR单步替代端到端测量。

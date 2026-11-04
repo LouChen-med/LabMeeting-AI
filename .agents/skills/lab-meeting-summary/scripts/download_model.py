@@ -186,17 +186,42 @@ def download_weight(url: str, expected_sha256: str, cache: Path, direct: bool) -
     return final
 
 
-# %% First-time download command; no alternate URL is enabled by default.
-def main() -> int:
-    root = Path(__file__).resolve().parent
+# %% Installation paths are independent of the caller's working directory.
+def build_parser() -> argparse.ArgumentParser:
+    default_root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--project-dir', type=Path, default=default_root,
+                        help='Existing asset root containing tmp; defaults to the Skill root')
     parser.add_argument('--repo', default='dropbox-dash/faster-whisper-large-v3-turbo')
     parser.add_argument('--revision', required=True, help='Immutable 40-character model commit SHA')
-    parser.add_argument('--model-dir', type=Path, default=root / 'models' / 'large-v3-turbo')
+    parser.add_argument('--model-dir', type=Path,
+                        help='Model destination within the asset root; relative paths start there (default: models/large-v3-turbo)')
     parser.add_argument('--endpoint', default='https://huggingface.co', help='Explicitly recorded download endpoint')
     parser.add_argument('--direct', action='store_true', help='Ignore proxy environment for this download process')
     parser.add_argument('--expected-model-sha256', help='Independently verified SHA256 of model.bin')
     parser.add_argument('--weight-url', help='Explicit HTTPS alternate weight URL; requires --expected-model-sha256')
+    return parser
+
+
+def resolve_install_paths(args: argparse.Namespace, parser: argparse.ArgumentParser) -> tuple[Path, Path, Path]:
+    root = args.project_dir.resolve()
+    if not root.is_dir():
+        parser.error('--project-dir must be an existing asset directory')
+    temporary = root / 'tmp'
+    if not temporary.is_dir():
+        parser.error('Project tmp must already exist; do not create it automatically')
+    model_dir = args.model_dir if args.model_dir is not None else Path('models') / 'large-v3-turbo'
+    destination = (model_dir if model_dir.is_absolute() else root / model_dir).resolve()
+    if root not in destination.parents:
+        parser.error('--model-dir must remain inside the project asset root')
+    if destination.exists() and (not destination.is_dir() or any(destination.iterdir())):
+        parser.error('Refusing an existing nonempty model directory; use the existing model or a new path')
+    return root, temporary, destination
+
+
+# %% First-time download command; no alternate URL is enabled by default.
+def main() -> int:
+    parser = build_parser()
     args = parser.parse_args()
     if len(args.revision) != 40 or any(c not in '0123456789abcdef' for c in args.revision.lower()):
         parser.error('--revision must be an immutable 40-character hexadecimal SHA')
@@ -204,14 +229,7 @@ def main() -> int:
         parser.error('--expected-model-sha256 must be a 64-character hexadecimal digest')
     if args.weight_url and (not args.expected_model_sha256 or not args.weight_url.startswith('https://')):
         parser.error('--weight-url requires HTTPS and --expected-model-sha256')
-    temporary = root / 'tmp'
-    if not temporary.is_dir():
-        parser.error('Project tmp must already exist; do not create it automatically')
-    destination = args.model_dir.resolve()
-    if root not in destination.parents:
-        parser.error('--model-dir must remain inside the project')
-    if destination.exists() and any(destination.iterdir()):
-        parser.error('Refusing an existing nonempty model directory; use the existing model or a new path')
+    root, temporary, destination = resolve_install_paths(args, parser)
     cache = temporary / 'model-download'
     os.environ['HF_HOME'] = str(cache)
     os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'

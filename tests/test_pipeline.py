@@ -11,7 +11,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-SOURCE = Path(__file__).resolve().parents[1] / "labmeeting.py"
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE = ROOT / ".agents" / "skills" / "lab-meeting-summary" / "scripts" / "labmeeting.py"
 SPEC = importlib.util.spec_from_file_location("labmeeting", SOURCE)
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
@@ -63,9 +64,10 @@ class PipelineInvariants(unittest.TestCase):
         script = r'''
 import io, os, pathlib, runpy, shutil, sys, tempfile
 source = pathlib.Path(sys.argv[1])
+temporary = pathlib.Path(sys.argv[2])
 namespace = runpy.run_path(str(source))
 namespace["configure_memory_runtime"]()
-target = source.parent / "tmp" / "blocked-write-must-not-exist"
+target = temporary / "blocked-write-must-not-exist"
 assert not target.exists()
 operations = [
     lambda: target.open("xb"),
@@ -75,7 +77,7 @@ operations = [
     lambda: target.rename(str(target) + ".renamed"),
     lambda: os.utime(target, None),
     lambda: shutil.copyfile(source, target),
-    lambda: tempfile.NamedTemporaryFile(dir=source.parent / "tmp"),
+    lambda: tempfile.NamedTemporaryFile(dir=temporary),
 ]
 if hasattr(os, "O_TEMPORARY"):
     operations.append(lambda: os.open(target, os.O_RDONLY | os.O_TEMPORARY))
@@ -98,7 +100,8 @@ assert os.environ["HF_HUB_OFFLINE"] == "1"
 print("All filesystem mutations blocked before execution; memory and read-only access work")
 '''
         result = subprocess.run([sys.executable, "-I", "-B", "-u", "-X", "utf8", "-c", script,
-                                 str(SOURCE)], capture_output=True, text=True, encoding="utf-8")
+                                 str(SOURCE), str(ROOT / "tmp")], capture_output=True, text=True,
+                                encoding="utf-8")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("All filesystem mutations blocked before execution", result.stdout)
 

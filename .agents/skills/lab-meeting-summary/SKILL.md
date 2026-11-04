@@ -9,7 +9,7 @@ description: 在 Windows 和 Conda 中按步骤检查并按需准备工具及 AS
 
 ## 如何让不同软件调用
 
-1. 让调用软件能够访问完整项目，而非只上传本文件。Skill可位于项目内，也可经用户授权安装到宿主skills目录；本机全局位置为 `J:\codex\.codex-data\home\skills\lab-meeting-summary`，安装状态须实际核实。若软件已发现并注册此Skill，可使用 `$lab-meeting-summary` 加视频与输出完整路径。
+1. 下载并让调用软件访问完整 `lab-meeting-summary` 文件夹，而非只上传 `SKILL.md`。Skill自带 `scripts/labmeeting.py`、`scripts/download_model.py`、`scripts/run.cmd`及根目录的 `environment.yml`，无需另外获取项目源码；Conda环境、GPU运行库及模型仍须单独准备。Skill可位于项目内，也可经用户授权安装到宿主skills目录；本机全局位置为 `J:\codex\.codex-data\home\skills\lab-meeting-summary`，安装状态须实际核实。若软件已发现并注册此Skill，可使用 `$lab-meeting-summary` 加视频与输出完整路径。
 2. 未注册时，直接向具备本地工具能力的AI发送下面的请求；换机先替换Skill路径和输入输出占位符：
 
 ```text
@@ -28,14 +28,14 @@ description: 在 Windows 和 Conda 中按步骤检查并按需准备工具及 AS
 - 优先复用已验证资产；缺失项才进入安装分支。安装、修改环境、下载、覆盖与清理按当前用户规则及有效授权执行；已有覆盖本步的授权不重复询问。不要擅自改base、驱动、系统PATH、安装WSL或其他总结后端。
 - 本流程在Windows x64 + Conda + NVIDIA CUDA上验证。支持不同本地AI软件调用，不表示已经跨操作系统验证；全局安装及宿主发现状态另行核实。
 
-## 第0步：确定输入、输出和项目位置
+## 第0步：确定输入、输出、Skill和模型位置
 
 1. 从用户请求取得视频的完整路径和最终MD完整路径；仅缺必需信息时询问。目标已存在时核对覆盖授权，不自动生成第二份“临时稿”。
-2. 优先使用用户明确提供的完整项目路径，或本次进程的 `LABMEETING_AI_PROJECT`。项目内Skill可从 `SKILL.md`所在目录向上三级寻找项目；全局副本不能这样认定仓库位置，可使用已核实的本机项目 `E:\BRC\Meet\LabMeeting-AI`。核实根目录的 `labmeeting.py`、`download_model.py`、`environment.yml`可读。Skill中的固定入口与参考文件不包含完整工具代码或模型；项目缺失时进入[首次配置第0–1步](references/首次配置.md)。
+2. 以当前 `SKILL.md`所在目录为Skill根，核实 `scripts/labmeeting.py`、`scripts/download_model.py`、`scripts/run.cmd`和 `environment.yml`可读；启动不再向上查找项目。另行核实用户指定的本地模型路径，本机继续复用 `E:\BRC\Meet\LabMeeting-AI\models\large-v3-turbo`。仅首次下载时确定安装资产根与已有 `tmp`，详见[首次配置第0–1、4步](references/首次配置.md)。
 3. 核实宿主能访问上述路径、直接运行已核实Conda环境解释器的独立子进程、持续完整接收stdout、保持跨调用内存状态，并查看内存JPEG；这些步骤不得另行生成会议中间文件。首次适配一个软件时，先读[工具调用协议](references/工具调用协议.md)。
 4. 每次命令调用都指定工作目录或使用绝对路径；不要假设两次终端共享变量、当前目录或 `conda activate` 状态。不要将脚本导入宿主自己的Python进程。
 
-本机路径实例：Conda为 `D:\software\Anaconda\Scripts\conda.exe`，环境解释器为 `D:\software\Anaconda\envs\labmeeting-ai\python.exe`，项目为 `E:\BRC\Meet\LabMeeting-AI`，环境名 `labmeeting-ai`，模型在 `models/large-v3-turbo`。环境仍由Conda管理；其他机器先核实再替换，不把实例路径当作已存在证据。
+本机路径实例：Conda为 `D:\software\Anaconda\Scripts\conda.exe`，环境解释器为 `D:\software\Anaconda\envs\labmeeting-ai\python.exe`，项目内Skill为 `E:\BRC\Meet\LabMeeting-AI\.agents\skills\lab-meeting-summary`，环境名 `labmeeting-ai`。模型和安装缓存继续复用资产根 `E:\BRC\Meet\LabMeeting-AI`下的 `models/large-v3-turbo`与已有 `tmp`，无需迁移模型。环境仍由Conda管理；其他机器先核实再替换，不把实例路径当作已存在证据。
 
 ## 第1步：选择复用或首次配置分支
 
@@ -46,7 +46,7 @@ description: 在 Windows 和 Conda 中按步骤检查并按需准备工具及 AS
 | 已有环境但出现导入、DLL、模型或推理错误 | 只进入首次配置中对应的排错步骤，列清差异，不盲目重装 |
 | 宿主不能执行本地命令、完整接收输出或查看图片 | 报告具体能力缺口；不能用普通文字聊天冒充执行或视觉核验 |
 
-首次配置文档包含完整命令、来源、固定模型revision/SHA256、安装授权节点、成功条件与失败分支；不要从其他示例自行拼一套未核实安装流程。Python依赖由项目 `environment.yml` 定义；CUDA12/cuBLAS/cuDNN9不由该文件保证齐全。本机只是复用已有 `DL/torch/lib` DLL，并不要求其他电脑安装PyTorch或创建同名环境。
+首次配置文档包含完整命令、来源、固定模型revision/SHA256、安装授权节点、成功条件与失败分支；不要从其他示例自行拼一套未核实安装流程。Python依赖由Skill根的 `environment.yml` 定义；CUDA12/cuBLAS/cuDNN9不由该文件保证齐全。本机只是复用已有 `DL/torch/lib` DLL，并不要求其他电脑安装PyTorch或创建同名环境。
 
 ## 第2步：启动完整内存转写
 
@@ -56,19 +56,19 @@ description: 在 Windows 和 Conda 中按步骤检查并按需准备工具及 AS
 & 'C:\Windows\System32\cmd.exe' /d /c '"E:\BRC\Meet\LabMeeting-AI\.agents\skills\lab-meeting-summary\scripts\run.cmd" stream --video "会议视频的实际完整路径.mp4" --model "E:\BRC\Meet\LabMeeting-AI\models\large-v3-turbo" --dll-dir "D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib" --compute-type int8_float16 --batch-size 2 --beam-size 1 --language auto'
 ```
 
-全局安装后，可将入口路径换为 `J:\codex\.codex-data\home\skills\lab-meeting-summary\scripts\run.cmd`。固定入口接收完整的 `labmeeting.py` CLI参数并原样透传；项目优先取进程变量 `LABMEETING_AI_PROJECT`，否则从入口所在目录向上四级查找，未找到再回退本机项目路径。用户明确指定项目时，将该路径传入本次子进程的 `LABMEETING_AI_PROJECT`。解释器默认使用本机已核实路径，可用进程变量 `LABMEETING_AI_PYTHON`覆盖；换机先核实并在每次子进程调用中传入实际值，不修改系统环境。
+全局安装后，可将入口路径换为 `J:\codex\.codex-data\home\skills\lab-meeting-summary\scripts\run.cmd`。固定入口始终调用同目录 `labmeeting.py`，原样透传CLI参数，不查找外部仓库。解释器默认使用本机已核实路径，可用进程变量 `LABMEETING_AI_PYTHON`覆盖；换机先核实并在每次子进程调用中传入实际值，不修改系统环境。
 
 直接解释器是等价备用，两种入口二选一，不重复转写：
 
 ```powershell
-& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 'E:\BRC\Meet\LabMeeting-AI\labmeeting.py' stream --video '会议视频的实际完整路径.mp4' --model 'E:\BRC\Meet\LabMeeting-AI\models\large-v3-turbo' --dll-dir 'D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib' --compute-type int8_float16 --batch-size 2 --beam-size 1 --language auto
+& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 'E:\BRC\Meet\LabMeeting-AI\.agents\skills\lab-meeting-summary\scripts\labmeeting.py' stream --video '会议视频的实际完整路径.mp4' --model 'E:\BRC\Meet\LabMeeting-AI\models\large-v3-turbo' --dll-dir 'D:\software\Anaconda\envs\DL\Lib\site-packages\torch\lib' --compute-type int8_float16 --batch-size 2 --beam-size 1 --language auto
 ```
 
 正式运行不带 `--limit-seconds`。默认配置适用于本机已验证路线；显存不足时明确报告并评估batch1，不自动转CPU、关其他程序或换模型。正常转写不联网下载权重。
 
 默认 `--language auto`以原语言转写（`task=transcribe`），启用多语种模式；每个VAD音频块（约30秒）选择主语言提示，支持中英文交替。不等于逐词或每条最终字幕段的语言检测，同一块内的混合术语仍需复核。`--language zh`或 `en`固定语言提示并关闭分块切换，也不做翻译。
 
-`-I`隔离用户site和 `PYTHONPATH`，`-B`禁止字节码写盘，`-u`实时输出，`-X utf8`固定UTF-8；不依赖 `activate` 或上次shell状态。入口在当前进程加载本环境 `sys.prefix\Library\bin`，并按 `--dll-dir`加入已核实的GPU DLL目录。Python写盘尝试被拦截时直接报错，不通过先写再删补救；本机原生库的本轮验证结果单独报告。
+`-I`隔离用户site和 `PYTHONPATH`，`-B`禁止字节码写盘，`-u`实时输出，`-X utf8`固定UTF-8；不依赖 `activate` 或上次shell状态。入口在当前进程加载本环境 `sys.prefix\Library\bin`，并按 `--dll-dir`加入已核实的GPU DLL目录。Python写盘尝试被拦截时直接报错，不通过先写再删补救；原生库的历史验证范围见方案依据，本次实际验证范围另行报告。
 
 ## 第3步：持续接收并核对全部转写
 
@@ -83,7 +83,7 @@ description: 在 Windows 和 Conda 中按步骤检查并按需准备工具及 AS
 先从转写确定需要核实的姓名、课题切换、图表、专业术语及数字，再定点取帧。优先合并少量相关时间，避免全视频抽帧。
 
 ```powershell
-& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 'E:\BRC\Meet\LabMeeting-AI\labmeeting.py' frame-inline --video '会议视频的实际完整路径.mp4' --times 00:05:00 00:32:10 4200 --width 1920
+& 'D:\software\Anaconda\envs\labmeeting-ai\python.exe' -I -B -u -X utf8 'E:\BRC\Meet\LabMeeting-AI\.agents\skills\lab-meeting-summary\scripts\labmeeting.py' frame-inline --video '会议视频的实际完整路径.mp4' --times 00:05:00 00:32:10 4200 --width 1920
 ```
 
 `--times`是原视频秒数或时分秒；4200即70分钟。解析每个 `frame` 事件，核对请求与实际时间，把 `data_url` 转成宿主真正的图像内容交给当前模型。**不打印base64正文，不保存截图，不把“拿到图片字符串”等同于“看过画面”。** 内存渲染和限额处理见[协议](references/工具调用协议.md)。
